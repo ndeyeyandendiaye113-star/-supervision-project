@@ -1,0 +1,203 @@
+{% extends "monitoring/base.html" %}
+{% block content %}
+
+{% if not artifacts_ready %}
+<div class="card status-alert">
+    <h2>⚠️ Modèle indisponible</h2>
+    <p>Impossible de charger l'auto-encodeur. Détail :</p>
+    <code>{{ load_error }}</code>
+    <p style="color: var(--text-muted); margin-top:10px;">
+        Copiez <code>autoencoder.keras</code>, <code>scaler.pkl</code>,
+        <code>feature_names.pkl</code> et <code>threshold.pkl</code>
+        (exportés depuis le notebook) dans <code>monitoring/ml_models/</code>.
+    </p>
+</div>
+{% else %}
+
+    {% if latest %}
+        <div class="status-banner {% if latest.is_anomaly %}status-alert{% else %}status-ok{% endif %}">
+            <div>
+                <div class="big">
+                    {% if latest.is_anomaly %}🔴 ANOMALIE DÉTECTÉE{% else %}🟢 Fonctionnement normal{% endif %}
+                </div>
+                <div class="sub">
+                    Dernière observation : {{ latest.timestamp|date:"d/m/Y H:i:s" }}
+                    — Type {{ latest.machine_type }}
+                    {% if latest.is_anomaly %}
+                        — variable la plus incriminée : <strong>{{ latest.top_variable }}</strong>
+                    {% endif %}
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <div class="big">{{ latest.reconstruction_error|floatformat:5 }}</div>
+                <div class="sub">seuil : {{ latest.threshold_used|floatformat:5 }}</div>
+            </div>
+        </div>
+    {% else %}
+        <div class="status-banner status-empty">
+            <div class="big">Aucune observation pour le moment</div>
+        </div>
+    {% endif %}
+
+    <div class="kpis">
+        <div class="kpi">
+            <div class="value">{{ total_count }}</div>
+            <div class="label">Observations traitées</div>
+        </div>
+        <div class="kpi">
+            <div class="value" style="color: var(--red);">{{ anomaly_count }}</div>
+            <div class="label">Anomalies détectées</div>
+        </div>
+        <div class="kpi">
+            <div class="value">{{ latest.threshold_used|default:"—"|floatformat:5 }}</div>
+            <div class="label">Seuil courant (97e percentile)</div>
+        </div>
+    </div>
+
+{% endif %}
+
+<div class="grid">
+    <div>
+        <div class="card">
+            <h2>Saisir une observation</h2>
+            <form method="post">
+                {% csrf_token %}
+                {% for field in form %}
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.errors %}<ul class="errorlist">{{ field.errors }}</ul>{% endif %}
+                {% endfor %}
+                <button type="submit" class="btn-primary">Analyser avec l'auto-encodeur</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Démo / simulation</h2>
+            <p style="color: var(--text-muted); font-size:0.85rem;">
+                Génère une observation aléatoire (majoritairement normale,
+                ~15% dégradée) pour démontrer la console sans capteur réel.
+            </p>
+            <div class="actions-row">
+                <form method="post" action="{% url 'monitoring:simulate' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-secondary">▶ Simuler un cycle</button>
+                </form>
+                <form method="post" action="{% url 'monitoring:reset' %}"
+                      onsubmit="return confirm('Effacer tout l\'historique ?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-danger">Réinitialiser</button>
+                </form>
+            </div>
+        </div>
+
+        {% if latest and latest.is_anomaly %}
+        <div class="card" style="border-color: var(--red);">
+            <h2>Diagnostic — dernière anomalie</h2>
+            <p style="font-size:0.85rem; color: var(--text-muted);">
+                Contribution de chaque variable à l'erreur de reconstruction.
+            </p>
+            {% for name, error in latest.feature_errors %}
+                <div style="margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+                        <span>{{ name }}</span>
+                        <span style="color: var(--text-muted);">{{ error|floatformat:5 }}</span>
+                    </div>
+                    <div class="diagnostic-bar">
+                        <span style="width: {% widthratio error latest.top_variable_error 100 %}%;"></span>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div>
+        <div class="card">
+            <h2>Score d'anomalie en continu</h2>
+            <canvas id="scoreChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Historique des observations</h2>
+            <table>
+                <thead>
+                <tr>
+                    <th>Heure</th>
+                    <th>Type</th>
+                    <th>Erreur reconstr.</th>
+                    <th>Statut</th>
+                    <th>Variable incriminée</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for r in readings %}
+                    <tr>
+                        <td>{{ r.timestamp|date:"H:i:s" }}</td>
+                        <td>{{ r.machine_type }}</td>
+                        <td>{{ r.reconstruction_error|floatformat:5 }}</td>
+                        <td>
+                            {% if r.is_anomaly %}
+                                <span class="badge badge-anomaly">Anomalie</span>
+                            {% else %}
+                                <span class="badge badge-normal">Normal</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if r.is_anomaly %}{{ r.top_variable }}{% else %}—{% endif %}</td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" style="color: var(--text-muted);">Aucune donnée.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadChart() {
+    const res = await fetch("{% url 'monitoring:chart_data' %}");
+    const data = await res.json();
+
+    const ctx = document.getElementById('scoreChart');
+    const pointColors = data.is_anomaly.map(a => a ? '#d64545' : '#2e8b57');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.labels,
+            datasets: [
+                {
+                    label: "Erreur de reconstruction",
+                    data: data.scores,
+                    borderColor: '#e8791a',
+                    backgroundColor: 'rgba(232,121,26,0.08)',
+                    pointBackgroundColor: pointColors,
+                    pointRadius: 4,
+                    tension: 0.25,
+                    fill: true,
+                },
+                {
+                    label: "Seuil d'alerte",
+                    data: data.labels.map(() => data.threshold),
+                    borderColor: '#d64545',
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#93a0b4' } } },
+            scales: {
+                x: { ticks: { color: '#93a0b4' }, grid: { color: '#263349' } },
+                y: { ticks: { color: '#93a0b4' }, grid: { color: '#263349' } },
+            }
+        }
+    });
+}
+
+loadChart();
+</script>
+
+{% endblock %}

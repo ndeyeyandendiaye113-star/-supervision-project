@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Console de supervision{% endblock %}</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --navy: #0b1220;
+            --navy-soft: #131c2e;
+            --orange: #e8791a;
+            --green: #2e8b57;
+            --red: #d64545;
+            --text-muted: #93a0b4;
+            --border: #263349;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+            background: var(--navy);
+            color: #e8ecf3;
+        }
+        header {
+            padding: 20px 32px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            font-size: 1.25rem;
+            margin: 0;
+            letter-spacing: 0.02em;
+        }
+        header .tag {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+        main {
+            padding: 24px 32px 48px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--navy-soft);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 1rem;
+            margin: 0 0 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin: 12px 0 4px;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #0e1626;
+            color: #e8ecf3;
+            font-size: 0.95rem;
+        }
+        .errorlist { color: var(--red); font-size: 0.8rem; margin: 4px 0 0; padding-left: 16px; }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .btn-primary { background: var(--orange); color: #1a1206; width: 100%; margin-top: 16px; }
+        .btn-secondary { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+        .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+        .status-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .status-ok { background: rgba(46, 139, 87, 0.15); border: 1px solid var(--green); }
+        .status-alert { background: rgba(214, 69, 69, 0.15); border: 1px solid var(--red); }
+        .status-empty { background: rgba(147, 160, 180, 0.1); border: 1px solid var(--border); }
+        .status-banner .big { font-size: 1.4rem; font-weight: 700; }
+        .status-banner .sub { color: var(--text-muted); font-size: 0.85rem; margin-top: 2px; }
+        .kpis { display: flex; gap: 14px; margin-bottom: 20px; }
+        .kpi { flex: 1; background: var(--navy-soft); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+        .kpi .value { font-size: 1.6rem; font-weight: 700; }
+        .kpi .label { color: var(--text-muted); font-size: 0.8rem; margin-top: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.72rem; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+        .badge-normal { background: rgba(46, 139, 87, 0.2); color: #6fd39a; }
+        .badge-anomaly { background: rgba(214, 69, 69, 0.2); color: #f08a8a; }
+        .diagnostic-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
+        .diagnostic-bar span { display: block; height: 100%; background: var(--orange); }
+        .messages { list-style: none; padding: 0; margin: 0 0 16px; }
+        .messages li { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 0.88rem; }
+        .messages .success { background: rgba(46, 139, 87, 0.15); border: 1px solid var(--green); }
+        .messages .error { background: rgba(214, 69, 69, 0.15); border: 1px solid var(--red); }
+        .messages .info { background: rgba(147, 160, 180, 0.1); border: 1px solid var(--border); }
+        .actions-row { display: flex; gap: 10px; margin-top: 12px; }
+        .actions-row form { flex: 1; }
+        .actions-row button { width: 100%; }
+        canvas { max-height: 260px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>🛰️ Console de supervision — Détection d'anomalies (Auto-encodeur)</h1>
+    <span class="tag">AI4I 2020 · Maintenance prédictive</span>
+</header>
+<main>
+    {% if messages %}
+    <ul class="messages">
+        {% for message in messages %}
+        <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

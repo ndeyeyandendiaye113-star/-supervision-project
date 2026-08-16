@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv/
+db.sqlite3
+.DS_Store
+
+# Artefacts du modèle : lourds, à exporter depuis le notebook (voir README)
+monitoring/ml_models/*.keras
+monitoring/ml_models/*.pkl
+!monitoring/ml_models/.gitkeep
